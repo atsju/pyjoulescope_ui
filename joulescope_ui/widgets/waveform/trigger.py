@@ -21,7 +21,10 @@ log = logging.getLogger(__name__)
 
 STYLE_SHEET = """
 QWidget[cssClass~=title] {
-    border: 1px solid gray;
+    background: #FFCCDDFF;
+    border-top: 1px solid gray;
+    border-left: 1px solid gray;
+    border-right: 1px solid gray;
     border-color: #FF202020;
     border-top-left-radius: 12px;
     border-top-right-radius: 12px;
@@ -64,14 +67,19 @@ SIGNALS = {
         'default_value': 1.0,
     },
     'energy': {
-        'units': [('nJ', 1e-9), ('µJ', 1e-6), ('mJ', 1e-3), ('J', 1),
-                  ('nWh', 1e-9 * 3600.0), ('µWh', 1e-6 * 3600.0), ('mWh', 1e-3 * 3600.0), ('Wh', 1 * 3600.0)],
+        'units': {
+            'J': [('nJ', 1e-9), ('µJ', 1e-6), ('mJ', 1e-3), ('J', 1)],
+            'Wh': [('nWh', 1e-9 * 3600.0), ('µWh', 1e-6 * 3600.0), ('mWh', 1e-3 * 3600.0), ('Wh', 1 * 3600.0)],
+        },
         'default_value': 1.0,
         'default_index': 3,
     },
     'charge': {
-        'units': [('nC', 1e-9), ('µC', 1e-6), ('mC', 1e-3), ('C', 1),
-                  ('nAh', 1e-9 * 3600.0), ('µAh', 1e-6 * 3600.0), ('mAh', 1e-3 * 3600.0), ('Ah', 1 * 3600.0)],
+        'units': {
+            'C': [('nC', 1e-9), ('µC', 1e-6), ('mC', 1e-3), ('C', 1)],
+            'Ah': [('pAh', 1e-12 * 3600.0), ('nAh', 1e-9 * 3600.0), ('µAh', 1e-6 * 3600.0),
+                   ('mAh', 1e-3 * 3600.0), ('Ah', 1 * 3600.0)],
+        },
         'default_value': 1.0,
         'default_index': 3,
     },
@@ -112,7 +120,6 @@ TRIGGER_SETTINGS_DEFAULT = {
                 'signal': 'current',
                 'operation': '>',
                 'value': 10e-6,
-                'units': 'µA',
             },
             'duration_min': {
                 'value': 10e-6,
@@ -183,8 +190,10 @@ def add_eol_spacer(layout):
 
 class SiValue(QtWidgets.QWidget):
 
-    def __init__(self, parent, name, signal=None, sampling_frequency=None):
+    def __init__(self, parent, name, signal=None, sampling_frequency=None, units=None):
         QtWidgets.QWidget.__init__(self, parent)
+        self._sampling_frequency = sampling_frequency
+        self._units = units
         self._layout = QtWidgets.QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._value_spinbox = QtWidgets.QDoubleSpinBox(parent)
@@ -196,7 +205,6 @@ class SiValue(QtWidgets.QWidget):
         self._units_combobox.currentIndexChanged.connect(self._on_units_change)
         self._signal = None
         self._units_previous_index = None
-        self._sampling_frequency = sampling_frequency
 
         self._layout.addWidget(self._value_spinbox)
         self._layout.addWidget(self._units_combobox)
@@ -206,7 +214,6 @@ class SiValue(QtWidgets.QWidget):
     def settings(self):
         return {
             'value': self.value,
-            'units': self._units_combobox.currentText(),
             'signal': self._signal['name'],
         }
 
@@ -219,7 +226,12 @@ class SiValue(QtWidgets.QWidget):
     def _units_enum(self):
         if self._signal is None:
             return None
-        return self._signal.get('units')
+        if isinstance(self._signal['units'], dict):
+            name = self._signal['name']
+            units = self._units[name]
+            return self._signal['units'][units]
+        else:
+            return self._signal.get('units')
 
     def _units_scale(self, index=None):
         if self._units_enum is not None:
@@ -259,7 +271,7 @@ class SiValue(QtWidgets.QWidget):
         self._units_combobox.clear()
         s = SIGNALS[signal]
         self._signal = s
-        units = s.get('units')
+        units = self._units_enum
         if units is None:
             self._units_combobox.setEnabled(False)
         else:
@@ -299,6 +311,8 @@ class Section(QtWidgets.QWidget):
         self.title.setObjectName(f'{name}_title')
         self.title.setProperty('cssClass', 'title')
         self.title_layout = QtWidgets.QHBoxLayout(self.title)
+        left, top, right, bottom = self.title_layout.getContentsMargins()
+        self.title_layout.setContentsMargins(left, int(top / 1.5), right, int(bottom / 1.5))
         self.title_label = QtWidgets.QLabel(name, self.title)
         self.title_layout.addWidget(self.title_label)
 
@@ -312,6 +326,7 @@ class Section(QtWidgets.QWidget):
         self.body.setObjectName(f'{name}_body')
         self.body.setProperty('cssClass', 'body')
         self.body_layout = QtWidgets.QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(left, int(top / 1.5), right, int(bottom / 1.5))
 
         self._layout.addWidget(self.title)
         self._layout.addWidget(self.body)
@@ -337,7 +352,7 @@ class Section(QtWidgets.QWidget):
         s = {
             '__selected__': self.content_combobox.currentText(),
         }
-        for name, widget in self._content.items:
+        for name, widget in self._content:
             s[name] = widget.settings
         return s
 
@@ -349,7 +364,7 @@ class Section(QtWidgets.QWidget):
         self.content_combobox.setVisible(bool(selected))
         for idx, (key, widget) in enumerate(self._content):
             self.content_combobox.addItem(key)
-            widget.settings = x[key]
+            widget.settings = x.get(key, {})
             if selected == key:
                 self._on_content_change(idx)
         self.content_combobox.blockSignals(block)
@@ -385,7 +400,7 @@ class DurationCheckbox(QtWidgets.QWidget):
     @property
     def settings(self):
         s = self.duration.settings
-        s['enabled'] = self.checkbox.isChecked(),
+        s['enabled'] = self.checkbox.isChecked()
         return s
 
     @settings.setter
@@ -417,7 +432,7 @@ class WaitCondition(QtWidgets.QWidget):
 
 class ThresholdSubcondition(QtWidgets.QWidget):
 
-    def __init__(self, parent, name):
+    def __init__(self, parent, name, signals, units):
         QtWidgets.QWidget.__init__(self, parent)
         self.setObjectName(name)
         self._layout = QtWidgets.QHBoxLayout(self)
@@ -425,7 +440,7 @@ class ThresholdSubcondition(QtWidgets.QWidget):
         self.when_label = QtWidgets.QLabel("When ", self)
         self._layout.addWidget(self.when_label)
         self.signal = QtWidgets.QComboBox(self)
-        for signal in EDGE_SIGNALS:
+        for signal in signals:
             self.signal.addItem(signal)
         self.signal.currentIndexChanged.connect(self._on_signal_index_changed)
         self._layout.addWidget(self.signal)
@@ -436,7 +451,7 @@ class ThresholdSubcondition(QtWidgets.QWidget):
             self.operation.addItem(op)
         self._layout.addWidget(self.operation)
 
-        self.threshold = SiValue(self, f'{name}_threshold', 'current')
+        self.threshold = SiValue(self, f'{name}_threshold', 'current', units=units)
         self._layout.addWidget(self.threshold)
 
     def _on_signal_index_changed(self, index):
@@ -450,18 +465,19 @@ class ThresholdSubcondition(QtWidgets.QWidget):
 
     @settings.setter
     def settings(self, x):
-        op_idx = self._operations.index(x['operation'])
+        op_idx = self._operations.index(x.get('operation', '>'))
+        self.signal.setCurrentIndex(self.signal.findText(x.get('signal', 'current')))
         self.operation.setCurrentIndex(op_idx)
         self.threshold.settings = x
 
 
 class EdgeCondition(QtWidgets.QWidget):
 
-    def __init__(self, parent, name, sampling_frequency):
+    def __init__(self, parent, name, sampling_frequency, units):
         QtWidgets.QWidget.__init__(self, parent)
         self._layout = QtWidgets.QVBoxLayout(self)
 
-        self.line1 = ThresholdSubcondition(self, f'{name}_threshold')
+        self.line1 = ThresholdSubcondition(self, f'{name}_threshold', EDGE_SIGNALS, units)
         add_eol_spacer(self.line1.layout())
 
         self.line2 = QtWidgets.QWidget(self)
@@ -507,21 +523,23 @@ class EdgeCondition(QtWidgets.QWidget):
 
 class WindowCondition(QtWidgets.QWidget):
 
-    def __init__(self, parent, name, sampling_frequency):
+    def __init__(self, parent, name, sampling_frequency, units):
         QtWidgets.QWidget.__init__(self, parent)
         self._layout = QtWidgets.QVBoxLayout(self)
 
-        self.line1 = ThresholdSubcondition(self, f'{name}_threshold')
+        self.line1 = ThresholdSubcondition(self, f'{name}_threshold', WINDOW_SIGNALS, units)
         add_eol_spacer(self.line1.layout())
 
         self.line2 = QtWidgets.QWidget(self)
         self.line2_layout = QtWidgets.QHBoxLayout(self.line2)
         self.line2_layout.setContentsMargins(0, 0, 0, 0)
-        self.line2_label = QtWidgets.QLabel('over', self.line2)
-        self.line2_layout.addWidget(self.line2_label)
-        self.duration = SiValue(self.line2, f'{name}_duration', 'time', sampling_frequency)
-        self.duration.value = 10e-6
+        self.line2_label1 = QtWidgets.QLabel('over a', self.line2)
+        self.line2_layout.addWidget(self.line2_label1)
+        self.duration = SiValue(self.line2, f'{name}_duration', 'time', sampling_frequency, units)
         self.line2_layout.addWidget(self.duration)
+        self.line2_label2 = QtWidgets.QLabel('window', self.line2)
+        self.line2_layout.addWidget(self.line2_label2)
+
         self.line2_spacer = add_eol_spacer(self.line2_layout)
 
         self._layout.addWidget(self.line1)
@@ -536,8 +554,47 @@ class WindowCondition(QtWidgets.QWidget):
 
     @settings.setter
     def settings(self, x):
-        self.line1.settings = x['threshold']
-        self.duration.settings = x['duration']
+        self.line1.settings = x.get('threshold', {'signal': 'energy', 'value': 1})
+        self.duration.settings = x.get('duration', {'signal': 'time', 'value': 0.001})
+
+
+class GpoAction(QtWidgets.QWidget):
+
+    def __init__(self, parent, name):
+        QtWidgets.QWidget.__init__(self, parent)
+        self.setObjectName(name)
+        self._layout = QtWidgets.QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._enabled = QtWidgets.QCheckBox('Set', self)
+        self._layout.addWidget(self._enabled)
+
+        self._signal = QtWidgets.QComboBox(self)
+        self._signal.addItem('out0')
+        self._signal.addItem('out1')
+        self._layout.addWidget(self._signal)
+
+        self._label2 = QtWidgets.QLabel('to', self)
+        self._layout.addWidget(self._label2)
+        self._value = QtWidgets.QComboBox(self)
+        self._value.addItem('0')
+        self._value.addItem('1')
+        self._layout.addWidget(self._value)
+
+        add_eol_spacer(self._layout)
+
+    @property
+    def settings(self):
+        return {
+            'enabled': self._enabled.isChecked(),
+            'signal': self._signal.currentText(),
+            'value': self._value.currentIndex(),
+        }
+
+    @settings.setter
+    def settings(self, x):
+        self._enabled.setChecked(bool(x.get('enabled')))
+        self._signal.setCurrentIndex(self._signal.findText(x.get('signal', 'out0')))
+        self._value.setCurrentIndex(x.get('value', 0))
 
 
 class StartActions(QtWidgets.QWidget):
@@ -549,37 +606,64 @@ class StartActions(QtWidgets.QWidget):
         self.ram = QtWidgets.QCheckBox('Capture to RAM buffer')
         self.ram.setChecked(True)
         self.record = QtWidgets.QCheckBox('Record data to file')
+        self.gpo = GpoAction(self, 'start_action_gpo')
+
         self._layout.addWidget(self.ram)
         self._layout.addWidget(self.record)
+        self._layout.addWidget(self.gpo)
 
     @property
     def settings(self):
         return {
             'ram': self.ram.isChecked(),
             'record': self.record.isChecked(),
+            'gpo': self.gpo.settings,
         }
 
     @settings.setter
     def settings(self, x):
         self.ram.setChecked(bool(x['ram']))
         self.record.setChecked(bool(x['record']))
+        self.gpo.settings = x.get('gpo', {})
+
+
+class StopActions(QtWidgets.QWidget):
+
+    def __init__(self, parent):
+        QtWidgets.QWidget.__init__(self, parent)
+        self._layout = QtWidgets.QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self.gpo = GpoAction(self, 'stop_action_gpo')
+        self._layout.addWidget(self.gpo)
+
+    @property
+    def settings(self):
+        return {
+            'gpo': self.gpo.settings,
+        }
+
+    @settings.setter
+    def settings(self, x):
+        self.gpo.settings = x.get('gpo', {})
 
 
 class Trigger(QtWidgets.QWidget):
 
-    def __init__(self, parent, sampling_frequency):
+    def __init__(self, parent, sampling_frequency, units):
         QtWidgets.QWidget.__init__(self, parent)
         self._widgets = {}
         self.setStyleSheet(STYLE_SHEET)
         self._layout = QtWidgets.QVBoxLayout(self)
+        self._layout.setSpacing(int(self._layout.spacing() * 1.5))
+        self._sections = ['before_start', 'start', 'start_actions', 'stop', 'stop_actions', 'after_stop']
 
-        self.before_start = DurationCheckbox(self, 'pre_trigger', 'Before start, capture', sampling_frequency)
+        self.before_start = DurationCheckbox(self, 'before_start', 'Before start, capture', sampling_frequency)
         self._layout.addWidget(self.before_start)
 
         self.start = Section(self, 'Start Condition')
         self._layout.addWidget(self.start)
-        self.start.add_body_item('edge', EdgeCondition(self.start.body, 'start_edge', sampling_frequency))
-        self.start.add_body_item('window', WindowCondition(self.start.body, 'start_window', sampling_frequency))
+        self.start.add_body_item('edge', EdgeCondition(self.start.body, 'start_edge', sampling_frequency, units))
+        self.start.add_body_item('window', WindowCondition(self.start.body, 'start_window', sampling_frequency, units))
 
         self.start_actions = Section(self, 'Start Actions')
         self._layout.addWidget(self.start_actions)
@@ -588,7 +672,12 @@ class Trigger(QtWidgets.QWidget):
         self.stop = Section(self, 'Stop Condition')
         self._layout.addWidget(self.stop)
         self.stop.add_body_item('wait', WaitCondition(self.stop.body, 'stop_duration', sampling_frequency))
-        self.stop.add_body_item('edge', EdgeCondition(self.stop.body, 'stop_edge', sampling_frequency))
+        self.stop.add_body_item('edge', EdgeCondition(self.stop.body, 'stop_edge', sampling_frequency, units))
+        self.stop.add_body_item('window', WindowCondition(self.stop.body, 'stop_window', sampling_frequency, units))
+
+        self.stop_actions = Section(self, 'Stop Actions')
+        self._layout.addWidget(self.stop_actions)
+        self.stop_actions.add_body_item('stop_actions', StopActions(self.stop_actions.body))
 
         self.after_stop = DurationCheckbox(self, 'after_stop', 'After stop, capture', sampling_frequency)
         self._layout.addWidget(self.after_stop)
@@ -600,31 +689,31 @@ class Trigger(QtWidgets.QWidget):
 
     @property
     def settings(self):
-        return {
-            'before_start': self.before_start.settings,
-            'start': self.start.settings,
-            'start_actions': self.start_actions.settings,
-            'stop': self.stop.settings,
-            'after_stop': self.after_stop.settings,
-        }
+        s = {}
+        for section in self._sections:
+            s[section] = getattr(getattr(self, section), 'settings')
+        return s
 
     @settings.setter
     def settings(self, x):
         if x is None:
             x = TRIGGER_SETTINGS_DEFAULT
-        self.before_start.settings = x['before_start']
-        self.start.settings = x['start']
-        self.start_actions.settings = x['start_actions']
-        self.stop.settings = x['stop']
-        self.after_stop.settings = x['after_stop']
+        for section in self._sections:
+            setattr(getattr(self, section), 'settings', x.get(section, {}))
 
 
 if __name__ == '__main__':
+    import json
+    import ctypes
+    if sys.platform.startswith('win'):
+        ctypes.windll.user32.SetProcessDPIAware()
+    QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
     app = QtWidgets.QApplication(sys.argv)
     dialog = QtWidgets.QDialog()
     layout = QtWidgets.QVBoxLayout()
-    w = Trigger(dialog, 2000000)
+    w = Trigger(dialog, 2000000, {'energy': 'J', 'charge': 'C'})
     w.settings = None  # defaults
     layout.addWidget(w)
     dialog.setLayout(layout)
     dialog.exec_()
+    print(json.dumps(w.settings, indent=4))
