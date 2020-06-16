@@ -38,7 +38,6 @@ QWidget[cssClass~=body] {
     border-bottom-left-radius: 12px;
     border-bottom-right-radius: 12px;
 }
-
 """
 
 SIGNALS = {
@@ -494,15 +493,20 @@ class EdgeCondition(QtWidgets.QWidget):
         self.line3_layout = QtWidgets.QHBoxLayout(self.line3)
         self.line3_layout.setContentsMargins(0, 0, 0, 0)
         self.line3_checkbox = QtWidgets.QCheckBox('but no more than ', self.line3)
+        self.line3_checkbox.toggled.connect(self._line3_checkbox_toggled)
         self.line3_layout.addWidget(self.line3_checkbox)
         self.duration_max = SiValue(self.line3, f'{name}_edge_duration_max', 'time', sampling_frequency)
         self.duration_max.value = 1.0
         self.line3_layout.addWidget(self.duration_max)
         self.line3_spacer = add_eol_spacer(self.line3_layout)
+        self._line3_checkbox_toggled(False)
 
         self._layout.addWidget(self.line1)
         self._layout.addWidget(self.line2)
         self._layout.addWidget(self.line3)
+
+    def _line3_checkbox_toggled(self, checked):
+        self.duration_max.setEnabled(checked)
 
     @property
     def settings(self):
