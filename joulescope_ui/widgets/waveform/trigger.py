@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 STYLE_SHEET = """
 QWidget[cssClass~=title] {
-    background: #FFCCDDFF;
+    background: #FFCCCCCC;
     border-top: 1px solid gray;
     border-left: 1px solid gray;
     border-right: 1px solid gray;
@@ -464,8 +464,10 @@ class ThresholdSubcondition(QtWidgets.QWidget):
 
     @settings.setter
     def settings(self, x):
+        x.setdefault('signal', 'current')
+        x.setdefault('value', 1.0)
         op_idx = self._operations.index(x.get('operation', '>'))
-        self.signal.setCurrentIndex(self.signal.findText(x.get('signal', 'current')))
+        self.signal.setCurrentIndex(self.signal.findText(x['signal']))
         self.operation.setCurrentIndex(op_idx)
         self.threshold.settings = x
 
@@ -488,25 +490,54 @@ class EdgeCondition(QtWidgets.QWidget):
         self.duration_min.value = 10e-6
         self.line2_layout.addWidget(self.duration_min)
         self.line2_spacer = add_eol_spacer(self.line2_layout)
+        self._layout.addWidget(self.line1)
+        self._layout.addWidget(self.line2)
+
+    @property
+    def settings(self):
+        return {
+            'threshold': self.line1.settings,
+            'duration_min': self.duration_min.settings,
+        }
+
+    @settings.setter
+    def settings(self, x):
+        self.line1.settings = x['threshold']
+        self.duration_min.settings = x['duration_min']
+
+
+class PulseCondition(QtWidgets.QWidget):
+
+    def __init__(self, parent, name, sampling_frequency, units):
+        QtWidgets.QWidget.__init__(self, parent)
+        self._layout = QtWidgets.QVBoxLayout(self)
+
+        self.line1 = ThresholdSubcondition(self, f'{name}_threshold', EDGE_SIGNALS, units)
+        add_eol_spacer(self.line1.layout())
+
+        self.line2 = QtWidgets.QWidget(self)
+        self.line2_layout = QtWidgets.QHBoxLayout(self.line2)
+        self.line2_layout.setContentsMargins(0, 0, 0, 0)
+        self.line2_label = QtWidgets.QLabel('for at least ', self.line2)
+        self.line2_layout.addWidget(self.line2_label)
+        self.duration_min = SiValue(self.line2, f'{name}_edge_duration_min', 'time', sampling_frequency)
+        self.duration_min.value = 10e-6
+        self.line2_layout.addWidget(self.duration_min)
+        self.line2_spacer = add_eol_spacer(self.line2_layout)
 
         self.line3 = QtWidgets.QWidget(self)
         self.line3_layout = QtWidgets.QHBoxLayout(self.line3)
         self.line3_layout.setContentsMargins(0, 0, 0, 0)
-        self.line3_checkbox = QtWidgets.QCheckBox('but no more than ', self.line3)
-        self.line3_checkbox.toggled.connect(self._line3_checkbox_toggled)
-        self.line3_layout.addWidget(self.line3_checkbox)
+        self.line3_label = QtWidgets.QLabel('but no more than ', self.line3)
+        self.line3_layout.addWidget(self.line3_label)
         self.duration_max = SiValue(self.line3, f'{name}_edge_duration_max', 'time', sampling_frequency)
         self.duration_max.value = 1.0
         self.line3_layout.addWidget(self.duration_max)
         self.line3_spacer = add_eol_spacer(self.line3_layout)
-        self._line3_checkbox_toggled(False)
 
         self._layout.addWidget(self.line1)
         self._layout.addWidget(self.line2)
         self._layout.addWidget(self.line3)
-
-    def _line3_checkbox_toggled(self, checked):
-        self.duration_max.setEnabled(checked)
 
     @property
     def settings(self):
@@ -514,15 +545,13 @@ class EdgeCondition(QtWidgets.QWidget):
             'threshold': self.line1.settings,
             'duration_min': self.duration_min.settings,
             'duration_max': self.duration_max.settings,
-            'duration_max_enabled': self.line3_checkbox.isChecked(),
         }
 
     @settings.setter
     def settings(self, x):
-        self.line1.settings = x['threshold']
-        self.duration_min.settings = x['duration_min']
-        self.duration_max.settings = x['duration_max']
-        self.line3_checkbox.setChecked(bool(x['duration_max_enabled']))
+        self.line1.settings = x.get('threshold', {})
+        self.duration_min.settings = x.get('duration_min', {'signal': 'time', 'value': 100e-6})
+        self.duration_max.settings = x.get('duration_max', {'signal': 'time', 'value': 10e-3})
 
 
 class WindowCondition(QtWidgets.QWidget):
@@ -667,6 +696,7 @@ class Trigger(QtWidgets.QWidget):
         self.start = Section(self, 'Start Condition')
         self._layout.addWidget(self.start)
         self.start.add_body_item('edge', EdgeCondition(self.start.body, 'start_edge', sampling_frequency, units))
+        self.start.add_body_item('pulse', PulseCondition(self.start.body, 'start_pulse', sampling_frequency, units))
         self.start.add_body_item('window', WindowCondition(self.start.body, 'start_window', sampling_frequency, units))
 
         self.start_actions = Section(self, 'Start Actions')
@@ -677,6 +707,7 @@ class Trigger(QtWidgets.QWidget):
         self._layout.addWidget(self.stop)
         self.stop.add_body_item('wait', WaitCondition(self.stop.body, 'stop_duration', sampling_frequency))
         self.stop.add_body_item('edge', EdgeCondition(self.stop.body, 'stop_edge', sampling_frequency, units))
+        self.stop.add_body_item('pulse', PulseCondition(self.stop.body, 'stop_pulse', sampling_frequency, units))
         self.stop.add_body_item('window', WindowCondition(self.stop.body, 'stop_window', sampling_frequency, units))
 
         self.stop_actions = Section(self, 'Stop Actions')
